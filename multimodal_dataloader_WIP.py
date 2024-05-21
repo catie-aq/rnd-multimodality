@@ -15,9 +15,9 @@ from torch.nn.utils.rnn import pad_sequence
 class DatasetMultimodal(Dataset):
     def __init__(self, df_pandas, absolute_start, absolute_end, transforms, images_tokenizer, pipeline_ts):
 
-        #get a list of random start&end dates
+        #get a list of 1000 random start&end dates
         L=[]        
-        for i in range(4):
+        for i in range(1000):
             absolute_start = datetime.strptime(str(absolute_start), "%Y-%m-%d %H:%M:%S")
             absolute_end = datetime.strptime(str(absolute_end), "%Y-%m-%d %H:%M:%S")
             time_delta = absolute_end - absolute_start
@@ -48,7 +48,7 @@ class DatasetMultimodal(Dataset):
             items_paths = df_filtered['file_path'].tolist()
             idx=idx+1
 
-        items_paths=items_paths[:8192]
+        items_paths=items_paths[:8192] #cut sequences longer than 8192
 
         n_tokens=0
         all_tokens_tensor = torch.empty(0)
@@ -59,11 +59,11 @@ class DatasetMultimodal(Dataset):
             if df_filtered['type'][i]=="ts" :
 
                 print(i, "one ts timestep used")
-                for n_column in range(1,9): #on parcourt chaque variable indépendamment
+                for n_column in range(1,9): #on parcourt et encode chaque variable indépendamment
                     one_value = df_filtered.iloc[0, n_column].astype(float) 
                     context = torch.tensor( one_value )
                     context = context.reshape(1,1) 
-                    new_token, _ = self.pipeline_ts.embed(context) # il faudra un positionnal encoding geographique par station, VARIABLE + taille petite et pas 512.
+                    new_token, _ = self.pipeline_ts.embed(context) # il faudra un positionnal encoding geographique par station, VARIABLE SURTOUT + taille petite et pas 512.
                     new_token=new_token[:,1,:].to("cuda")
                     new_token= new_token.unsqueeze(dim=2)
                     all_tokens_tensor = torch.cat((all_tokens_tensor, new_token), dim=2)
@@ -98,28 +98,35 @@ class DatasetMultimodal(Dataset):
         if all_tokens_tensor.size(2)>8192:
             all_tokens_tensor=all_tokens_tensor[:,:,:8192] 
             n_tokens = 8192
+        
+
+        n_tokens = torch.tensor([ n_tokens] )
         return  all_tokens_tensor, n_tokens
    
 
 def my_collate_fn(batch):
     print("collat_fn is called")
+    #batch est une liste de "batchsize" sorties du getitem. chacune est un tuple.
+    #le deuxième indice donne soit le tenseur de la sequence, soit le tenseur d'un entier
+
     # Create lists to hold the masked sequences and the original contents of the masked positions
     masked_batch = []
     batch_of_labels = []
 
-    print("aaaaaaaaaaa", len(batch) )
-    print("bbbbbbbbbbbbbbb", type(batch[0]))
-
-    for sequence in batch[0]:
-        sequence_length = len(sequence)
+    for my_tuple in batch:
+        sequence=my_tuple[0]
+        #print(sequence.size())
+        sequence_length = my_tuple[1]
+        #print(sequence_length.size())
+        
         mask_indices = random.sample(range(sequence_length), k=int(0.2 * sequence_length))
         
         masked_sequence = sequence.clone()
         labels = torch.zeros_like(sequence)
 
         for idx in mask_indices:
-            labels[idx] = sequence[idx]
-            masked_sequence[idx] = 0  # Assuming 0 is the masking value
+            labels[:,:,idx] = sequence[:,:,idx] 
+            masked_sequence[:,:,idx] = torch.zeros([512])  # Assuming 0 is the masking value
 
         masked_batch.append(masked_sequence)
         batch_of_labels.append(labels)
@@ -160,21 +167,21 @@ if __name__ == "__main__":
            
            
     #contrôle sur une sequence
-    """print("génère une seuqnce")
+    print("génère une sequence")
     seq_tokens, n = dataset_multi[0]
-    print("taille de le premiere sequence", seq_tokens.size() )"""
+    print("taille de le premiere sequence", seq_tokens.size() )
 
-    dataloader_multi = DataLoader(dataset_multi, shuffle=True, batch_size=1, collate_fn = my_collate_fn)
+    dataloader_multi = DataLoader(dataset_multi, shuffle=True, batch_size=2, collate_fn = my_collate_fn)
     print("Taille des lots:", dataloader_multi.batch_size)
 
-    for batch_idx, out in enumerate(dataloader_multi):
-        print("Batch", batch_idx)
-        print("contenu du batch, tokens", out[0].size())  
-        print("contenu du batch, partie n_tokens:", out[1]) 
-
+    for batch in dataloader_multi: #chaque batch est un tuple. dans [0] une liste de taille "batchsize". dans [1] aussi. Dans ces deux listes, des tuples.
+        print(batch[0][0]) #une sequences a trous
+        print("################################################################################")
+        print(batch[1][0]) #une sequence targets
+        print(batch[1][2]) #doit foirer, le deuxième indice devant être inférieur à batchsize
         break
-
-        
+    
+    
     """#check all by recontructing one image
 
     to do : tenir compte de la dimension 512 à rammener à 64 pour les images
@@ -186,3 +193,5 @@ if __name__ == "__main__":
     output = images_tokenizer.decode( quant_t, quant_b )
     utils.save_image( output, "verif_reconstruction.png", normalize=True, range=(-1,1))
     print("fin")"""
+
+
