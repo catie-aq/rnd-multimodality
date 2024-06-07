@@ -1,3 +1,10 @@
+#TO DO :
+# dans getitem "ts" : tenseur qui encode le temps + la variable en question + la station en question
+# taille 512 pour ts à mette en relation avec 64 pour image. sous optimal?
+# dans getitem "image" : tenseur qui encode le temps + le typ de carte en question + positionnel heut/bas
+#
+#adpater la collate en consequence. Renvoit un batch de tenseur qui encodent l'info pour le PE.
+
 import torch
 import pandas as pd
 from PIL import Image
